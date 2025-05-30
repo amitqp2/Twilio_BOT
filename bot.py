@@ -2,14 +2,14 @@
 
 import logging
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.constants import ChatMemberStatus
+from telegram.constants import ChatMemberStatus # এটি আপনার কোডে ছিল, ঠিক আছে
 from telegram.error import BadRequest, Forbidden
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 from twilio.rest import Client # আপনার কোডে এটি আছে
 import os
 import threading
 from flask import Flask # আপনার কোডে এটি আছে
-import traceback # বিস্তারিত ট্রেসব্যাক লগ করার জন্য যোগ করা হয়েছে
+import traceback # বিস্তারিত ট্রেসব্যাক লগ করার জন্য
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -38,7 +38,7 @@ JOIN_GROUP_PROMPT_TEXT = "আপনার যেকোনো সমস্যা 
 USER_COMPLETED_ALL_JOINS_KEY = 'has_completed_all_joins'
 VERIFY_ALL_JOINS_CALLBACK_DATA = "verify_all_joins"
 
-# Persistent menu
+# Persistent menu (আপনার কোডের ফরম্যাটিং অনুযায়ী)
 menu_keyboard = [
     [LOGIN_TEXT],
     [BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT],
@@ -57,20 +57,26 @@ def run_flask():
     port = int(os.environ.get('PORT', 8080))
     flask_app.run(host='0.0.0.0', port=port)
 
-# --- Helper function to check channel/group memberships (বিস্তারিত লগিং সহ) ---
+# --- Helper function to check channel/group memberships (AttributeError সমাধানের জন্য পরিবর্তিত) ---
 async def check_all_memberships(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     is_member_of_channel = False
     is_member_of_group = False
+    
+    # স্ট্যাটাসের গ্রহণযোগ্য স্ট্রিং ভ্যালুগুলো
+    ACCEPTED_STATUSES = ["member", "administrator", "creator"]
 
     # চ্যানেলের মেম্বারশিপ চেক
     try:
         if context.bot:
             member_channel = await context.bot.get_chat_member(chat_id=TARGET_CHANNEL_ID, user_id=user_id)
-            if member_channel.status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR]:
+            # member_channel.status.value ব্যবহার করে স্ট্রিং ভ্যালুর সাথে তুলনা করা হচ্ছে
+            if hasattr(member_channel, 'status') and member_channel.status and hasattr(member_channel.status, 'value') and member_channel.status.value in ACCEPTED_STATUSES:
                 is_member_of_channel = True
-                logger.info(f"User {user_id} IS a member of channel {TARGET_CHANNEL_ID} with status: {member_channel.status}")
+                logger.info(f"User {user_id} IS a member of channel {TARGET_CHANNEL_ID} with status value: {member_channel.status.value}")
+            elif hasattr(member_channel, 'status') and member_channel.status: 
+                 logger.info(f"User {user_id} is NOT a member of channel {TARGET_CHANNEL_ID} (status: {member_channel.status}, value: {getattr(member_channel.status, 'value', 'N/A')})")
             else:
-                logger.info(f"User {user_id} is NOT a member of channel {TARGET_CHANNEL_ID} (status: {member_channel.status})")
+                 logger.info(f"User {user_id} - Could not determine valid status for channel {TARGET_CHANNEL_ID}")
         else:
             logger.error(f"Bot instance not found in context for channel {TARGET_CHANNEL_ID} check for user {user_id}.")
     except BadRequest as e:
@@ -79,17 +85,20 @@ async def check_all_memberships(user_id: int, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"Forbidden: Bot cannot access channel {TARGET_CHANNEL_ID} members for user {user_id}. Is it an admin? Error: {e}")
     except Exception as e:
         logger.error(f"Unexpected error checking channel {TARGET_CHANNEL_ID} for user {user_id}. Exception Type: {type(e)}, Error: {e}")
-        logger.error(f"Full Traceback for channel check error: {traceback.format_exc()}") # সম্পূর্ণ ট্রেসব্যাক লগ করা
+        logger.error(f"Full Traceback for channel check error: {traceback.format_exc()}")
 
     # গ্রুপের মেম্বারশিপ চেক
     try:
         if context.bot:
             member_group = await context.bot.get_chat_member(chat_id=TARGET_GROUP_ID, user_id=user_id)
-            if member_group.status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR]:
+            # member_group.status.value ব্যবহার করে স্ট্রিং ভ্যালুর সাথে তুলনা করা হচ্ছে
+            if hasattr(member_group, 'status') and member_group.status and hasattr(member_group.status, 'value') and member_group.status.value in ACCEPTED_STATUSES:
                 is_member_of_group = True
-                logger.info(f"User {user_id} IS a member of group {TARGET_GROUP_ID} with status: {member_group.status}")
+                logger.info(f"User {user_id} IS a member of group {TARGET_GROUP_ID} with status value: {member_group.status.value}")
+            elif hasattr(member_group, 'status') and member_group.status:
+                 logger.info(f"User {user_id} is NOT a member of group {TARGET_GROUP_ID} (status: {member_group.status}, value: {getattr(member_group.status, 'value', 'N/A')})")
             else:
-                logger.info(f"User {user_id} is NOT a member of group {TARGET_GROUP_ID} (status: {member_group.status})")
+                logger.info(f"User {user_id} - Could not determine valid status for group {TARGET_GROUP_ID}")
         else:
             logger.error(f"Bot instance not found in context for group {TARGET_GROUP_ID} check for user {user_id}.")
     except BadRequest as e:
@@ -98,16 +107,16 @@ async def check_all_memberships(user_id: int, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"Forbidden: Bot cannot access group {TARGET_GROUP_ID} members for user {user_id}. Is it an admin? Error: {e}")
     except Exception as e:
         logger.error(f"Unexpected error checking group {TARGET_GROUP_ID} for user {user_id}. Exception Type: {type(e)}, Error: {e}")
-        logger.error(f"Full Traceback for group check error: {traceback.format_exc()}") # সম্পূর্ণ ট্রেসব্যাক লগ করা
+        logger.error(f"Full Traceback for group check error: {traceback.format_exc()}")
         
     return is_member_of_channel and is_member_of_group
 
-# send_join_prompt ফাংশনে AttributeError সমাধান করা হয়েছে
+# send_join_prompt ফাংশনে আগের AttributeError সমাধান করা আছে
 async def send_join_prompt(update_or_query, context: ContextTypes.DEFAULT_TYPE):
     current_user = None
     if hasattr(update_or_query, 'effective_user') and update_or_query.effective_user:
         current_user = update_or_query.effective_user
-    elif hasattr(update_or_query, 'from_user') and update_or_query.from_user: # CallbackQuery তে from_user থাকে
+    elif hasattr(update_or_query, 'from_user') and update_or_query.from_user: 
         current_user = update_or_query.from_user
     
     if not current_user:
@@ -119,7 +128,7 @@ async def send_join_prompt(update_or_query, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Error sending answer to callback query in send_join_prompt: {e_ans}")
         return
 
-    user_id = current_user.id # user_id এখন সঠিকভাবে পাওয়া যাবে
+    user_id = current_user.id
     
     join_message = (
         f"👋 এই বটটি সম্পূর্ণভাবে ব্যবহার করার জন্য, অনুগ্রহ করে আমাদের নিচের দুটি প্ল্যাটফর্মেই জয়েন করুন:\n\n"
@@ -155,17 +164,17 @@ async def send_join_prompt(update_or_query, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ensure_user_has_joined(update_or_query, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    user = None # Initialize user
+    user = None 
     if hasattr(update_or_query, 'effective_user') and update_or_query.effective_user:
         user = update_or_query.effective_user
-    elif hasattr(update_or_query, 'from_user') and update_or_query.from_user: # For CallbackQuery
+    elif hasattr(update_or_query, 'from_user') and update_or_query.from_user: 
         user = update_or_query.from_user
 
     if not user:
         logger.warning("ensure_user_has_joined: effective_user/from_user not found.")
-        if hasattr(update_or_query, 'message') and update_or_query.message: # From Update
+        if hasattr(update_or_query, 'message') and update_or_query.message: 
             await update_or_query.message.reply_text("ব্যবহারকারী সনাক্ত করতে সমস্যা হচ্ছে। অনুগ্রহ করে আবার /start কমান্ড দিন।")
-        elif hasattr(update_or_query, 'callback_query') and update_or_query.callback_query: # From CallbackQuery
+        elif hasattr(update_or_query, 'callback_query') and update_or_query.callback_query: 
             await update_or_query.callback_query.answer("ব্যবহারকারী সনাক্ত করতে সমস্যা হচ্ছে। অনুগ্রহ করে আবার চেষ্টা করুন।", show_alert=True)
         return False
         
@@ -179,7 +188,7 @@ async def ensure_user_has_joined(update_or_query, context: ContextTypes.DEFAULT_
         return True
     else:
         context.user_data[USER_COMPLETED_ALL_JOINS_KEY] = False
-        await send_join_prompt(update_or_query, context) # update_or_query is passed correctly
+        await send_join_prompt(update_or_query, context)
         return False
 
 # --- Telegram Bot Handlers ---
@@ -188,7 +197,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning("Start command received with no effective_user.")
         return
 
-    if await ensure_user_has_joined(update, context): # update is passed
+    if await ensure_user_has_joined(update, context): 
         await update.message.reply_text(
             f"👋 স্বাগতম! আপনি আমাদের চ্যানেল ও গ্রুপের সদস্য। '{LOGIN_TEXT}' বাটন চাপুন অথবা মেনু থেকে অন্য কোনো অপশন বেছে নিন।",
             reply_markup=reply_markup
@@ -222,13 +231,11 @@ async def verify_all_joins_callback(update: Update, context: ContextTypes.DEFAUL
             await query.edit_message_text(text=original_message_text)
         except BadRequest as e:
             logger.warning(f"Could not edit failure message for user {user_id}: {e}")
-            # If edit fails, a new prompt will be sent by send_join_prompt
-        # query is passed to send_join_prompt
         await send_join_prompt(query, context) 
 
 
 async def login_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await ensure_user_has_joined(update, context): # update is passed
+    if not await ensure_user_has_joined(update, context): 
         return ConversationHandler.END 
 
     user_id = update.effective_user.id
@@ -276,7 +283,7 @@ async def receive_credentials(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
 async def logout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await ensure_user_has_joined(update, context): return # update is passed
+    if not await ensure_user_has_joined(update, context): return 
     user_id = update.effective_user.id
     if user_id in user_sessions:
         del user_sessions[user_id]
@@ -285,7 +292,7 @@ async def logout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("ℹ️ আপনি লগইন অবস্থায় নেই।", reply_markup=reply_markup)
 
 async def buy_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await ensure_user_has_joined(update, context): return # update is passed
+    if not await ensure_user_has_joined(update, context): return 
     user_id = update.effective_user.id
     if user_id not in user_sessions:
         await update.message.reply_text(f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন।")
@@ -322,7 +329,7 @@ async def purchase_number_callback_handler(update: Update, context: ContextTypes
         if query: await query.answer("একটি সমস্যা হয়েছে।")
         return
 
-    if not await ensure_user_has_joined(query, context): # query is passed
+    if not await ensure_user_has_joined(query, context): 
         await query.answer("অনুগ্রহ করে প্রথমে চ্যানেল ও গ্রুপে জয়েন করে ভেরিফাই করুন।", show_alert=True)
         return
         
@@ -372,7 +379,7 @@ async def purchase_number_callback_handler(update: Update, context: ContextTypes
         await query.edit_message_text(text=error_message, reply_markup=None)
 
 async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await ensure_user_has_joined(update, context): return # update is passed
+    if not await ensure_user_has_joined(update, context): return 
     user_id = update.effective_user.id
     if user_id not in user_sessions:
         await update.message.reply_text(f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন।")
@@ -397,7 +404,7 @@ async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("⚠️ মেসেজ আনতে সমস্যা হয়েছে।")
 
 async def remove_number_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await ensure_user_has_joined(update, context): return # update is passed
+    if not await ensure_user_has_joined(update, context): return 
     user_id = update.effective_user.id
     if user_id not in user_sessions:
         await update.message.reply_text(f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন।")
@@ -423,7 +430,7 @@ async def confirm_remove_callback_handler(update: Update, context: ContextTypes.
         if query: await query.answer("একটি সমস্যা হয়েছে।")
         return
 
-    if not await ensure_user_has_joined(query, context): # query is passed
+    if not await ensure_user_has_joined(query, context): 
         await query.answer("অনুগ্রহ করে প্রথমে চ্যানেল ও গ্রুপে জয়েন করে ভেরিফাই করুন।", show_alert=True)
         return
 
@@ -462,7 +469,7 @@ async def confirm_remove_callback_handler(update: Update, context: ContextTypes.
 
 
 async def handle_general_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await ensure_user_has_joined(update, context): return # update is passed
+    if not await ensure_user_has_joined(update, context): return 
 
     user_id = update.effective_user.id
     text = update.message.text.strip()
