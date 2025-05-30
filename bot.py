@@ -21,7 +21,7 @@ user_sessions = {}  # user_id -> {'sid': str, 'auth': str, 'client': Client, 'nu
 LOGIN_AWAITING_CREDENTIALS = range(1)
 
 # ---- Menu Texts with Emojis (Standard Font) ----
-START_TEXT = '🏠 Start ' # নতুন স্টার্ট বাটন টেক্সট
+# START_TEXT = '🏠 Start / Home' # স্টার্ট বাটন সরিয়ে ফেলা হয়েছে
 LOGIN_TEXT = '🔑 Login'
 BUY_TEXT = '🛒 Buy Number'
 SHOW_MESSAGES_TEXT = '✉️ Show Messages'
@@ -29,13 +29,12 @@ REMOVE_NUMBER_TEXT = '🗑️ Remove Number'
 LOGOUT_TEXT = '↪️ Logout'
 SUPPORT_TEXT = '💬 Support'
 
-# Persistent menu (স্টার্ট বাটনসহ আপডেট করা হয়েছে)
+# Persistent menu (স্টার্ট বাটন সরানো হয়েছে)
 menu_keyboard = [
-    [START_TEXT], 
     [LOGIN_TEXT],
     [BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT],
     [LOGOUT_TEXT],
-    [SUPPORT_TEXT] 
+    [SUPPORT_TEXT]
 ]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True, one_time_keyboard=False)
 
@@ -86,7 +85,7 @@ def format_codes_in_message(body: str) -> str:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user:
-        logger.warning("Start command/button received with no effective_user.")
+        logger.warning("Start command received with no effective_user.")
         return
     
     logger.info(f"User {user.id} ({user.full_name if user.full_name else 'N/A'}) triggered start.")
@@ -106,14 +105,13 @@ async def login_command_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def receive_credentials(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_input = update.message.text.strip()
-    main_menu_button_texts = [START_TEXT, LOGIN_TEXT, BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT, LOGOUT_TEXT, SUPPORT_TEXT] 
+    # START_TEXT main_menu_button_texts থেকে সরানো হয়েছে
+    main_menu_button_texts = [LOGIN_TEXT, BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT, LOGOUT_TEXT, SUPPORT_TEXT] 
     if user_input in main_menu_button_texts: 
         await update.message.reply_text(
             f"✋ এই সময়ে বাটন না চেপে, অনুগ্রহ করে আপনার Twilio Account SID এবং Auth Token টাইপ করে পাঠান।"
             f" আবার চেষ্টা করতে '{LOGIN_TEXT}' বাটন চাপুন।"
         )
-        if user_input == START_TEXT: # যদি স্টার্ট বাটন চাপা হয় লগইন করার সময়
-             await start(update, context) 
         return ConversationHandler.END  
     try:
         sid, auth = user_input.split(maxsplit=1)
@@ -134,12 +132,26 @@ async def receive_credentials(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
 async def logout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    user = update.effective_user
+    if not user:
+        logger.warning("Logout triggered with no effective_user.")
+        # Optionally send a message if update.message exists
+        if update.message:
+            await update.message.reply_text("ব্যবহারকারী সনাক্ত করতে সমস্যা হচ্ছে।")
+        return
+
+    user_id = user.id
     if user_id in user_sessions:
         del user_sessions[user_id]
-        await update.message.reply_text("✅ আপনি সফলভাবে লগ আউট হয়েছেন।", reply_markup=reply_markup)
+        logger.info(f"User {user_id} ({user.full_name if user.full_name else 'N/A'}) logged out.")
+        await update.message.reply_text("✅ আপনি সফলভাবে লগ আউট হয়েছেন।") 
+        # লগআউটের পর start ফাংশন কল করা হচ্ছে
+        await start(update, context)
     else:
         await update.message.reply_text("ℹ️ আপনি লগইন অবস্থায় নেই।", reply_markup=reply_markup)
+        # যদি লগইন না থাকা অবস্থাতেও স্টার্ট মেনু দেখাতে চান:
+        # await start(update, context)
+
 
 async def buy_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -345,7 +357,8 @@ if __name__ == '__main__':
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Regex(f'^{START_TEXT}$'), start)) # স্টার্ট বাটন হ্যান্ডলার
+    # START_TEXT এর জন্য MessageHandler সরিয়ে ফেলা হয়েছে
+    # app.add_handler(MessageHandler(filters.Regex(f'^{START_TEXT}$'), start)) 
 
     app.add_handler(MessageHandler(filters.Regex(f'^{LOGOUT_TEXT}$'), logout_handler))
     app.add_handler(MessageHandler(filters.Regex(f'^{BUY_TEXT}$'), buy_handler)) 
