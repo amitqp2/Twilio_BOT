@@ -21,15 +21,17 @@ user_sessions = {}  # user_id -> {'sid': str, 'auth': str, 'client': Client, 'nu
 LOGIN_AWAITING_CREDENTIALS = range(1)
 
 # ---- Menu Texts with Emojis (Standard Font) ----
+START_TEXT = '🏠 Start ' # নতুন স্টার্ট বাটন টেক্সট
 LOGIN_TEXT = '🔑 Login'
 BUY_TEXT = '🛒 Buy Number'
 SHOW_MESSAGES_TEXT = '✉️ Show Messages'
 REMOVE_NUMBER_TEXT = '🗑️ Remove Number'
 LOGOUT_TEXT = '↪️ Logout'
-SUPPORT_TEXT = '💬 Support' # নতুন সাপোর্ট বাটন টেক্সট
+SUPPORT_TEXT = '💬 Support'
 
-# Persistent menu (সাপোর্ট বাটনসহ আপডেট করা হয়েছে)
+# Persistent menu (স্টার্ট বাটনসহ আপডেট করা হয়েছে)
 menu_keyboard = [
+    [START_TEXT], 
     [LOGIN_TEXT],
     [BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT],
     [LOGOUT_TEXT],
@@ -82,9 +84,12 @@ def format_codes_in_message(body: str) -> str:
 
 # --- Telegram Bot Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.effective_user: 
-        logger.warning("Start command received with no effective_user.")
+    user = update.effective_user
+    if not user:
+        logger.warning("Start command/button received with no effective_user.")
         return
+    
+    logger.info(f"User {user.id} ({user.full_name if user.full_name else 'N/A'}) triggered start.")
     await update.message.reply_text(
         f"👋 স্বাগতম! '{LOGIN_TEXT}' বাটন চাপুন অথবা মেনু থেকে অন্য কোনো অপশন বেছে নিন।",
         reply_markup=reply_markup
@@ -101,12 +106,14 @@ async def login_command_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def receive_credentials(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_input = update.message.text.strip()
-    main_menu_button_texts = [LOGIN_TEXT, BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT, LOGOUT_TEXT, SUPPORT_TEXT] # SUPPORT_TEXT যোগ করা হয়েছে
+    main_menu_button_texts = [START_TEXT, LOGIN_TEXT, BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT, LOGOUT_TEXT, SUPPORT_TEXT] 
     if user_input in main_menu_button_texts: 
         await update.message.reply_text(
             f"✋ এই সময়ে বাটন না চেপে, অনুগ্রহ করে আপনার Twilio Account SID এবং Auth Token টাইপ করে পাঠান।"
             f" আবার চেষ্টা করতে '{LOGIN_TEXT}' বাটন চাপুন।"
         )
+        if user_input == START_TEXT: # যদি স্টার্ট বাটন চাপা হয় লগইন করার সময়
+             await start(update, context) 
         return ConversationHandler.END  
     try:
         sid, auth = user_input.split(maxsplit=1)
@@ -177,7 +184,7 @@ async def purchase_number_callback_handler(update: Update, context: ContextTypes
         return
     if user_sessions[user_id].get('number'):
         current_number = user_sessions[user_id]['number']
-        try: await query.edit_message_text(text=f"ℹ️ আপনার ইতিমধ্যেই একটি নম্বর ({current_number}) কেনা আছে। নতুন নম্বর কিনতে আগেরটি '{REMOVE_NUMBER_TEXT}' ব্যবহার করে মুছুন।")
+        try: await query.edit_message_text(text=f"ℹ️ আপনার ইতিমধ্যেই একটি নম্বর (`{current_number}`) কেনা আছে। নতুন নম্বর কিনতে আগেরটি '{REMOVE_NUMBER_TEXT}' ব্যবহার করে মুছুন।", parse_mode='Markdown')
         except BadRequest: pass
         return
     try:
@@ -195,15 +202,15 @@ async def purchase_number_callback_handler(update: Update, context: ContextTypes
         logger.info(f"User {user_id} attempting to purchase number: {number_to_buy}")
         incoming_number = client.incoming_phone_numbers.create(phone_number=number_to_buy)
         user_sessions[user_id]['number'] = incoming_number.phone_number
-        success_message = f"🛍️ নম্বর {incoming_number.phone_number} সফলভাবে কেনা হয়েছে!"
-        await query.edit_message_text(text=success_message, reply_markup=None)
+        success_message = f"🛍️ নম্বর `{incoming_number.phone_number}` সফলভাবে কেনা হয়েছে!"
+        await query.edit_message_text(text=success_message, reply_markup=None, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Failed to buy number {number_to_buy} for user {user_id}: {e}")
-        error_message = f"❌ এই নম্বরটি ({number_to_buy}) কিনতে সমস্যা হয়েছে।"
+        error_message = f"❌ এই নম্বরটি (`{number_to_buy}`) কিনতে সমস্যা হয়েছে।"
         if "violates a uniqueness constraint" in str(e).lower() or "already provisioned" in str(e).lower(): error_message += " এটি ইতিমধ্যেই আপনার অ্যাকাউন্টে রয়েছে অথবা অন্য কেউ ব্যবহার করছে।"
         elif "not be found" in str(e).lower() or "not available" in str(e).lower(): error_message += " নম্বরটি এই মুহূর্তে আর উপলব্ধ নেই।"
         else: error_message += " এটি উপলব্ধ নাও থাকতে পারে অথবা আপনার অ্যাকাউন্টে পর্যাপ্ত ব্যালেন্স/অনুমতি নেই।"
-        await query.edit_message_text(text=error_message, reply_markup=None)
+        await query.edit_message_text(text=error_message, reply_markup=None, parse_mode='Markdown')
 
 async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -303,24 +310,16 @@ async def handle_general_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text("🤔 আপনার অনুরোধ বুঝতে পারিনি। অনুগ্রহ করে মেনু থেকে একটি অপশন বেছে নিন।", reply_markup=reply_markup)
 
-# --- নতুন Support Handler ---
 async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the 'Support' button click."""
     user = update.effective_user
     if not user:
         logger.warning("Support command received with no effective_user.")
         return
-
     logger.info(f"User {user.id} ({user.full_name if user.full_name else 'N/A'}) clicked Support button.")
-    
-    support_username = "MrGhosh75" # আপনার দেওয়া ইউজারনেম
+    support_username = "MrGhosh75"
     support_message = "সাপোর্টের জন্য, অনুগ্রহ করে অ্যাডমিনের সাথে যোগাযোগ করুন:"
-    
-    keyboard = [
-        [InlineKeyboardButton(f"যোগাযোগ করুন @{support_username}", url=f"https://t.me/{support_username}")]
-    ]
+    keyboard = [[InlineKeyboardButton(f"যোগাযোগ করুন @{support_username}", url=f"https://t.me/{support_username}")]]
     inline_reply_markup = InlineKeyboardMarkup(keyboard)
-    
     try:
         await update.message.reply_text(support_message, reply_markup=inline_reply_markup)
     except Exception as e:
@@ -346,12 +345,13 @@ if __name__ == '__main__':
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.Regex(f'^{START_TEXT}$'), start)) # স্টার্ট বাটন হ্যান্ডলার
 
     app.add_handler(MessageHandler(filters.Regex(f'^{LOGOUT_TEXT}$'), logout_handler))
     app.add_handler(MessageHandler(filters.Regex(f'^{BUY_TEXT}$'), buy_handler)) 
     app.add_handler(MessageHandler(filters.Regex(f'^{REMOVE_NUMBER_TEXT}$'), remove_number_handler))
     app.add_handler(MessageHandler(filters.Regex(f'^{SHOW_MESSAGES_TEXT}$'), show_messages_handler))
-    app.add_handler(MessageHandler(filters.Regex(f'^{SUPPORT_TEXT}$'), support_handler)) # সাপোর্ট হ্যান্ডলার যোগ করা হয়েছে
+    app.add_handler(MessageHandler(filters.Regex(f'^{SUPPORT_TEXT}$'), support_handler))
     
     app.add_handler(CallbackQueryHandler(purchase_number_callback_handler, pattern='^purchase_'))
     app.add_handler(CallbackQueryHandler(confirm_remove_callback_handler, pattern='^confirm_remove_(yes|no)$'))
