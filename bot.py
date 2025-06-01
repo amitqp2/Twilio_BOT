@@ -21,7 +21,7 @@ user_sessions = {}  # user_id -> {'sid': str, 'auth': str, 'client': Client, 'nu
 AWAITING_CREDENTIALS = 0  # For login conversation
 
 # ---- Menu Texts with Emojis (Standard Font) ----
-START_COMMAND_TEXT = '🏠 /start' # New Start button text
+START_COMMAND_TEXT = '🏠 /start' # Start button text
 LOGIN_TEXT = '🔑 Login'
 BUY_TEXT = '🛒 Buy Number' 
 SHOW_MESSAGES_TEXT = '✉️ Show Messages'
@@ -110,8 +110,7 @@ async def display_numbers_with_buy_buttons(message_object, context: ContextTypes
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user: logger.warning("Start command/button received with no effective_user."); return
-    logger.info(f"User {user.id} ({user.full_name or 'N/A'}) triggered start.")
-    # The reply_markup sent here will now be the updated menu
+    logger.info(f"User {user.id} ({user.full_name or 'N/A'}) triggered start or start button.")
     await update.message.reply_text(
         f"👋 স্বাগতম! '{LOGIN_TEXT}' বাটন চাপুন অথবা মেনু থেকে অন্য কোনো অপশন বেছে নিন।",
         reply_markup=reply_markup 
@@ -128,7 +127,6 @@ async def login_command_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def receive_credentials(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.effective_user.id
     user_input = update.message.text.strip()
-    # Updated main menu button texts to check if user clicks a button instead of providing credentials
     main_menu_button_texts = [START_COMMAND_TEXT, LOGIN_TEXT, BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT, LOGOUT_TEXT, SUPPORT_TEXT]  
     if user_input in main_menu_button_texts:  
         await update.message.reply_text(
@@ -162,11 +160,11 @@ async def logout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del user_sessions[user_id]
         logger.info(f"User {user_id} ({user.full_name or 'N/A'}) logged out.")
         await update.message.reply_text("✅ আপনি সফলভাবে লগ আউট হয়েছেন।")  
-        await start(update, context) # Show start menu after logout
+        await start(update, context) 
     else:
         await update.message.reply_text("ℹ️ আপনি লগইন অবস্থায় নেই।", reply_markup=reply_markup)
 
-async def buy_number_direct_ca_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def buy_number_direct_ca_handler(update: Update, context: ContextTypes.DEFAULT_TYPE): # Renamed from buy_random_ca_number_handler for clarity
     user_id = update.effective_user.id
     if user_id not in user_sessions:
         await update.message.reply_text(f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন।")
@@ -177,11 +175,11 @@ async def buy_number_direct_ca_handler(update: Update, context: ContextTypes.DEF
         return
     client = user_sessions[user_id]['client']
     try:
-        await update.message.reply_text("🔎 কানাডা থেকে উপলব্ধ নম্বর খোঁজা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...")
+        await update.message.reply_text("🔎 কানাডা থেকে উপলব্ধ নম্বর খোঁজা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...") # Changed from "র্যা ন্ডম এরিয়া কোড"
         available_numbers = client.available_phone_numbers("CA").local.list(limit=10)
-        await display_numbers_with_buy_buttons(update.message, context, available_numbers, "কানাডায় উপলব্ধ")
+        await display_numbers_with_buy_buttons(update.message, context, available_numbers, "কানাডায় উপলব্ধ") # Generic intro
     except Exception as e:
-        logger.error(f"Failed to fetch random CA numbers for user {user_id}: {e}")
+        logger.error(f"Failed to fetch CA numbers for user {user_id}: {e}") # Changed log message slightly
         await update.message.reply_text("⚠️ নম্বর আনতে সমস্যা হয়েছে। সম্ভবত আপনার অ্যাকাউন্টে এই অঞ্চলের নম্বর কেনার অনুমতি নেই অথবা অন্য কোনো সমস্যা।")
 
 async def purchase_number_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -345,10 +343,14 @@ async def handle_general_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     if user_id in user_sessions and text.startswith('+') and len(text) > 7 and text[1:].isdigit() and user_sessions[user_id].get('client'):
         await update.message.reply_text("ℹ️ নম্বর সরাসরি টাইপ করে কেনার সুবিধাটি আপাতত নেই। অনুগ্রহ করে মেনু থেকে '🛒 Buy Number' বাটন ব্যবহার করুন।", reply_markup=reply_markup)
     else:
-        # Only respond if it's not a command that might be handled by CommandHandler
-        # and also not a text that could be part of an active conversation (though specific ConversationHandler states should catch those first)
-        if not text.startswith('/'): 
-            await update.message.reply_text("🤔 আপনার অনুরোধ বুঝতে পারিনি। অনুগ্রহ করে মেনু থেকে একটি অপশন বেছে নিন।", reply_markup=reply_markup)
+        if not text.startswith('/'): # Avoid replying to /start if CommandHandler is also present for text
+            is_button_text = False
+            all_button_texts = [START_COMMAND_TEXT, LOGIN_TEXT, BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT, LOGOUT_TEXT, SUPPORT_TEXT]
+            if text in all_button_texts:
+                is_button_text = True
+            
+            if not is_button_text : # Only send "don't understand" if it's not a menu button click
+                 await update.message.reply_text("🤔 আপনার অনুরোধ বুঝতে পারিনি। অনুগ্রহ করে মেনু থেকে একটি অপশন বেছে নিন।", reply_markup=reply_markup)
 
 
 async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -384,17 +386,19 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel_conversation)] 
     )
     
+    # The ConversationHandler for "Buy Number (Specific Area Code)" is removed as BUY_TEXT is now direct.
+    # If you want to re-add it for a different button, define it here and add the handler.
+
     app.add_handler(login_conv_handler)
     
-    # CommandHandler for /start must be added BEFORE any MessageHandler that might catch '/start' as text.
-    # The START_COMMAND_TEXT button will send '/start' as message text.
+    # Handler for the "🏠 /start" button text
+    app.add_handler(MessageHandler(filters.Regex(f'^{START_COMMAND_TEXT}$'), start))
+    # Also keep CommandHandler for users who type /start
     app.add_handler(CommandHandler("start", start)) 
 
-    # MessageHandlers for menu buttons
-    # If START_COMMAND_TEXT was just "🏠 Start", we'd need a MessageHandler for it here.
-    # But since it's "🏠 /start", CommandHandler("start",...) handles it.
+    # MessageHandlers for other menu buttons
     app.add_handler(MessageHandler(filters.Regex(f'^{LOGOUT_TEXT}$'), logout_handler))
-    app.add_handler(MessageHandler(filters.Regex(f'^{BUY_TEXT}$'), buy_number_direct_ca_handler)) 
+    app.add_handler(MessageHandler(filters.Regex(f'^{BUY_TEXT}$'), buy_number_direct_ca_handler)) # Changed to direct handler
     app.add_handler(MessageHandler(filters.Regex(f'^{REMOVE_NUMBER_TEXT}$'), remove_number_handler))
     app.add_handler(MessageHandler(filters.Regex(f'^{SHOW_MESSAGES_TEXT}$'), show_messages_handler)) 
     app.add_handler(MessageHandler(filters.Regex(f'^{SUPPORT_TEXT}$'), support_handler))
@@ -404,7 +408,6 @@ if __name__ == '__main__':
     app.add_handler(CallbackQueryHandler(confirm_remove_callback_handler, pattern=f'^{CONFIRM_REMOVE_YES_CALLBACK}$|^{CONFIRM_REMOVE_NO_CALLBACK}$')) 
     app.add_handler(CallbackQueryHandler(direct_remove_after_show_msg_callback, pattern=f'^{DIRECT_REMOVE_AFTER_SHOW_MSG_CALLBACK}$')) 
     
-    # General text handler should be last to avoid catching specific commands or button texts
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_general_text))
 
     print("Flask keep-alive server চালু হচ্ছে...")
