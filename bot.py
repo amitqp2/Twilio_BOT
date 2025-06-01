@@ -26,7 +26,7 @@ LOGIN_TEXT = '🔑 Login'
 BUY_RANDOM_CA_TEXT = '🎲 Buy Number (Random Area Code)'
 BUY_SPECIFIC_CA_TEXT = '🎯 Buy Number (Specific Area Code)'
 SHOW_MESSAGES_TEXT = '✉️ Show Messages'
-REMOVE_NUMBER_TEXT = '🗑️ Remove Number' # This one will still use 2-step confirmation
+REMOVE_NUMBER_TEXT = '🗑️ Remove Number' 
 LOGOUT_TEXT = '↪️ Logout'
 SUPPORT_TEXT = '💬 Support'
 
@@ -34,7 +34,7 @@ SUPPORT_TEXT = '💬 Support'
 PURCHASE_CALLBACK_PREFIX = 'purchase_'
 CONFIRM_REMOVE_YES_CALLBACK = 'confirm_remove_yes'
 CONFIRM_REMOVE_NO_CALLBACK = 'confirm_remove_no'
-DIRECT_REMOVE_AFTER_SHOW_MSG_CALLBACK = 'direct_remove_this_number' # New callback data
+DIRECT_REMOVE_AFTER_SHOW_MSG_CALLBACK = 'direct_remove_this_number'
 
 # Persistent menu
 menu_keyboard = [
@@ -269,17 +269,14 @@ async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if user_id not in user_sessions:  
         await update.message.reply_text(f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন।")
         return
-        
     active_number = user_sessions[user_id].get('number')
     if not active_number:  
         await update.message.reply_text(f"ℹ️ আপনার কোনো কেনা নম্বর নেই। প্রথমে '{BUY_RANDOM_CA_TEXT}' অথবা '{BUY_SPECIFIC_CA_TEXT}' এর মাধ্যমে একটি নম্বর কিনুন।")
         return
-        
     client = user_sessions[user_id]['client']
     try:
         await update.message.reply_text(f"📨 `{active_number}` নম্বরের মেসেজ খোঁজা হচ্ছে...", parse_mode='Markdown')
         messages = client.messages.list(to=active_number, limit=5)  
-        
         reply_message_text = ""
         if not messages:
             reply_message_text = "📪 আপনার এই নম্বরে কোনো নতুন মেসেজ পাওয়া যায়নি।"
@@ -293,12 +290,10 @@ async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 msg_detail = (f"\n➡️ **প্রেরক:** `{sender_from}`\n📝 **বার্তা:** {formatted_body}\n🗓️ **সময়:** {time_sent_str}\n---")
                 response_msg_parts.append(msg_detail)
             reply_message_text = "".join(response_msg_parts)
-        
-        # Send the messages
         await update.message.reply_text(reply_message_text, parse_mode='Markdown')
 
-        # Now send the inline button for direct removal
-        button_text = "এই নম্বরটা রিমুভ করুন" # As per user's request
+        # Add the direct remove button after showing messages
+        button_text = "এই নম্বরটা রিমুভ করুন" 
         keyboard = [[InlineKeyboardButton(button_text, callback_data=DIRECT_REMOVE_AFTER_SHOW_MSG_CALLBACK)]]
         inline_reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("আপনি চাইলে নিচের বাটন ব্যবহার করে এই নম্বরটি সরাসরি রিমুভ করতে পারেন:", reply_markup=inline_reply_markup)
@@ -310,38 +305,32 @@ async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def direct_remove_after_show_msg_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query or not query.from_user: logger.warning("direct_remove_callback: query or query.from_user not found."); return
-    
-    await query.answer() # Answer immediately
+    await query.answer() 
     user_id = query.from_user.id
-
     if user_id not in user_sessions or not user_sessions[user_id].get('number'):
         try: await query.edit_message_text(text="🚫 কোনো সক্রিয় নম্বর নেই অথবা সেশন শেষ হয়ে গেছে। এই অপশনটি আর কাজ করবে না।")
-        except BadRequest: pass # If original message is too old or deleted
+        except BadRequest: pass 
         return
-
     number_to_remove = user_sessions[user_id]['number']
     client = user_sessions[user_id]['client']
-    
     try:
         logger.info(f"User {user_id} initiated direct removal for number: {number_to_remove} from show_messages context.")
         await query.edit_message_text(text=f"⏳ `{number_to_remove}` নম্বরটি সরাসরি রিমুভ করা হচ্ছে...", parse_mode='Markdown')
-        
         incoming_phone_numbers = client.incoming_phone_numbers.list(phone_number=number_to_remove, limit=1)
         if not incoming_phone_numbers:
             await query.edit_message_text(text=f"❓ নম্বর `{number_to_remove}` আপনার অ্যাকাউন্টে পাওয়া যায়নি বা আগেই রিমুভ করা হয়েছে।", parse_mode='Markdown')
             user_sessions[user_id]['number'] = None 
             return
-
         number_sid_to_delete = incoming_phone_numbers[0].sid
         client.incoming_phone_numbers(number_sid_to_delete).delete()
         user_sessions[user_id]['number'] = None
-        await query.edit_message_text(text=f"🗑️ নম্বর `{number_to_remove}` সফলভাবে সরাসরি রিমুভ করা হয়েছে!", parse_mode='Markdown', reply_markup=None) # Remove button
+        await query.edit_message_text(text=f"🗑️ নম্বর `{number_to_remove}` সফলভাবে সরাসরি রিমুভ করা হয়েছে!", parse_mode='Markdown', reply_markup=None) 
     except Exception as e:
         logger.error(f"Failed to directly remove number {number_to_remove} for user {user_id}: {e}")
         await query.edit_message_text(text=f"⚠️ নম্বর `{number_to_remove}` রিমুভ করতে সমস্যা হয়েছে।", parse_mode='Markdown', reply_markup=None)
 
 
-async def remove_number_handler(update: Update, context: ContextTypes.DEFAULT_TYPE): # Main menu remove (with confirmation)
+async def remove_number_handler(update: Update, context: ContextTypes.DEFAULT_TYPE): 
     user_id = update.effective_user.id
     if user_id not in user_sessions:
         await update.message.reply_text(f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন।")
@@ -368,7 +357,6 @@ async def confirm_remove_callback_handler(update: Update, context: ContextTypes.
         try: await query.edit_message_text(text="🚫 এই অনুরোধটি আর বৈধ নয় অথবা আপনার লগইন সেশন বা সক্রিয় নম্বর নেই।")
         except BadRequest: pass
         return
-        
     number_to_remove = user_sessions[user_id]['number']
     if action == CONFIRM_REMOVE_YES_CALLBACK:
         client = user_sessions[user_id]['client']
@@ -393,16 +381,12 @@ async def confirm_remove_callback_handler(update: Update, context: ContextTypes.
 async def handle_general_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
-    # This function should ideally only be triggered if no other specific handler (button text, command, or active conversation state) matches.
-    # The ConversationHandlers for login and buy should catch their expected inputs.
-    
-    # Check for manual '+' number input if user is logged in and not in another conversation
+    # This handler should ideally not interfere with active conversations.
+    # The ConversationHandlers for login and buy should handle their expected inputs.
     if user_id in user_sessions and text.startswith('+') and len(text) > 7 and text[1:].isdigit() and user_sessions[user_id].get('client'):
         await update.message.reply_text("ℹ️ নম্বর সরাসরি টাইপ করে কেনার সুবিধাটি আপাতত নেই। অনুগ্রহ করে মেনু থেকে 'Buy Number' বাটন ব্যবহার করুন।", reply_markup=reply_markup)
     else:
-        # Default fallback for text not handled by other specific handlers
         await update.message.reply_text("🤔 আপনার অনুরোধ বুঝতে পারিনি। অনুগ্রহ করে মেনু থেকে একটি অপশন বেছে নিন।", reply_markup=reply_markup)
-
 
 async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -427,21 +411,15 @@ if __name__ == '__main__':
     
     app = Application.builder().token(TOKEN).build()
 
-    # Login Conversation Handler
     login_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(f'^{LOGIN_TEXT}$'), login_command_handler)],
-        states={
-            AWAITING_CREDENTIALS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_credentials)]
-        },
+        states={ AWAITING_CREDENTIALS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_credentials)] },
         fallbacks=[CommandHandler('cancel', cancel_conversation)] 
     )
     
-    # Buy Number by Specific CA Area Code Conversation Handler
     buy_specific_ca_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(f'^{BUY_SPECIFIC_CA_TEXT}$'), ask_for_ca_area_code)],
-        states={
-            AWAITING_CA_AREA_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, list_numbers_by_ca_area_code)]
-        },
+        states={ AWAITING_CA_AREA_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, list_numbers_by_ca_area_code)] },
         fallbacks=[CommandHandler('cancel', cancel_conversation)] 
     )
 
@@ -449,19 +427,16 @@ if __name__ == '__main__':
     app.add_handler(buy_specific_ca_conv_handler) 
     app.add_handler(CommandHandler("start", start))
 
-    # Direct handlers for other menu buttons
     app.add_handler(MessageHandler(filters.Regex(f'^{LOGOUT_TEXT}$'), logout_handler))
     app.add_handler(MessageHandler(filters.Regex(f'^{BUY_RANDOM_CA_TEXT}$'), buy_random_ca_number_handler)) 
-    app.add_handler(MessageHandler(filters.Regex(f'^{REMOVE_NUMBER_TEXT}$'), remove_number_handler)) # This shows confirmation
-    app.add_handler(MessageHandler(filters.Regex(f'^{SHOW_MESSAGES_TEXT}$'), show_messages_handler)) # This will now add an inline button
+    app.add_handler(MessageHandler(filters.Regex(f'^{REMOVE_NUMBER_TEXT}$'), remove_number_handler))
+    app.add_handler(MessageHandler(filters.Regex(f'^{SHOW_MESSAGES_TEXT}$'), show_messages_handler)) 
     app.add_handler(MessageHandler(filters.Regex(f'^{SUPPORT_TEXT}$'), support_handler))
     
-    # CallbackQueryHandlers
     app.add_handler(CallbackQueryHandler(purchase_number_callback_handler, pattern=f'^{PURCHASE_CALLBACK_PREFIX}'))
-    app.add_handler(CallbackQueryHandler(confirm_remove_callback_handler, pattern=f'^{CONFIRM_REMOVE_YES_CALLBACK}$|^{CONFIRM_REMOVE_NO_CALLBACK}$')) # Regex for both yes/no
-    app.add_handler(CallbackQueryHandler(direct_remove_after_show_msg_callback, pattern=f'^{DIRECT_REMOVE_AFTER_SHOW_MSG_CALLBACK}$')) # New handler
+    app.add_handler(CallbackQueryHandler(confirm_remove_callback_handler, pattern=f'^{CONFIRM_REMOVE_YES_CALLBACK}$|^{CONFIRM_REMOVE_NO_CALLBACK}$')) 
+    app.add_handler(CallbackQueryHandler(direct_remove_after_show_msg_callback, pattern=f'^{DIRECT_REMOVE_AFTER_SHOW_MSG_CALLBACK}$')) 
     
-    # General text handler should be last
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_general_text))
 
     print("Flask keep-alive server চালু হচ্ছে...")
