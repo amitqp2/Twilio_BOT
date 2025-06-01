@@ -15,10 +15,11 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Globals
-user_sessions = {}  # user_id -> {'sid': str, 'auth': str, 'client': Client, 'number': str, 'last_sms_list_msg_id': None, 'last_sms_list_chat_id': None}
+user_sessions = {}  # user_id -> {'sid': str, 'auth': str, 'client': Client, 'number': str, 'last_sms_list_msg_id': None, 'last_sms_list_chat_id': None, 'last_direct_remove_button_msg_id': None, 'last_direct_remove_button_chat_id': None}
 
 # States for ConversationHandlers
 AWAITING_CREDENTIALS = 0
+AWAITING_CA_AREA_CODE = 1 
 
 # ---- Menu Texts with Emojis (Standard Font) ----
 START_COMMAND_TEXT = '🏠 /start' 
@@ -90,7 +91,7 @@ def format_codes_in_message(body: str) -> str:
 async def display_numbers_with_buy_buttons(message_object, context: ContextTypes.DEFAULT_TYPE, available_numbers, intro_text: str):
     if not available_numbers:
         await message_object.reply_text(f"😔 {intro_text} এই মুহূর্তে কোনো উপলভ্য নম্বর নেই।")
-        return None # Return None if no numbers displayed
+        return None 
     message_parts = [f"📞 {intro_text} উপলব্ধ নম্বর নিচে দেওয়া হলো। নম্বরটি চেপে ধরে কপি করতে পারেন:\n"]
     keyboard_buttons = []
     for number_obj in available_numbers:
@@ -105,7 +106,7 @@ async def display_numbers_with_buy_buttons(message_object, context: ContextTypes
     full_message_text = "\n".join(message_parts)
     inline_reply_markup = InlineKeyboardMarkup(keyboard_buttons)
     sent_message = await message_object.reply_text(full_message_text, reply_markup=inline_reply_markup, parse_mode='Markdown')
-    return sent_message # Return the sent message object
+    return sent_message 
 
 # --- Telegram Bot Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -142,7 +143,7 @@ async def receive_credentials(update: Update, context: ContextTypes.DEFAULT_TYPE
             return ConversationHandler.END
         client = Client(sid, auth)
         client.api.accounts(sid).fetch()  
-        user_sessions[user_id] = {'sid': sid, 'auth': auth, 'client': client, 'number': None, 'last_sms_list_msg_id': None, 'last_sms_list_chat_id': None} # Initialize new keys
+        user_sessions[user_id] = {'sid': sid, 'auth': auth, 'client': client, 'number': None, 'last_sms_list_msg_id': None, 'last_sms_list_chat_id': None, 'last_direct_remove_button_msg_id': None, 'last_direct_remove_button_chat_id': None}
         await update.message.reply_text("🎉 লগইন সফল হয়েছে!", reply_markup=reply_markup)
         return ConversationHandler.END
     except ValueError:
@@ -165,24 +166,44 @@ async def logout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("ℹ️ আপনি লগইন অবস্থায় নেই।", reply_markup=reply_markup)
 
-async def buy_number_direct_ca_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- Buy Number Conversation (Canada Fixed, Asks Area Code) ---
+async def ask_for_ca_area_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.effective_user.id
     if user_id not in user_sessions:
         await update.message.reply_text(f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন।")
-        return
+        return ConversationHandler.END
     if user_sessions[user_id].get('number'):
         current_number = user_sessions[user_id]['number']
         await update.message.reply_text(f"ℹ️ আপনার ইতিমধ্যেই একটি নম্বর (`{current_number}`) কেনা আছে। নতুন নম্বর কিনতে আগেরটি '{REMOVE_NUMBER_TEXT}' ব্যবহার করে মুছুন।", parse_mode='Markdown')
-        return
+        return ConversationHandler.END
+    await update.message.reply_text("📝 অনুগ্রহ করে কানাডার কোন এরিয়া কোডের নম্বর কিনতে চান সেটি জানান (যেমন: 416, 604, 514 ইত্যাদি)। \n\nপ্রক্রিয়া বাতিল করতে /cancel টাইপ করুন।")
+    return AWAITING_CA_AREA_CODE
+
+async def list_numbers_by_ca_area_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = update.effective_user.id
+    area_code_input = update.message.text.strip()
+    if not area_code_input.isdigit() or len(area_code_input) != 3:
+        await update.message.reply_text("⚠️ অনুগ্রহ করে সঠিক ৩ সংখ্যার কানাডিয়ান এরিয়া কোড দিন (যেমন, 416)। আবার চেষ্টা করতে '🛒 Buy Number' বাটন চাপুন অথবা /cancel টাইপ করুন।")
+        return AWAITING_CA_AREA_CODE
+    if user_id not in user_sessions:
+        await update.message.reply_text(f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন। '🛒 Buy Number' বাটন চেপে আবার চেষ্টা করুন।")
+        return ConversationHandler.END
     client = user_sessions[user_id]['client']
     try:
-        await update.message.reply_text("🔎 কানাডা থেকে উপলব্ধ নম্বর খোঁজা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...")
-        available_numbers = client.available_phone_numbers("CA").local.list(limit=10)
-        # display_numbers_with_buy_buttons now returns the sent message, but we don't need to store it here
-        await display_numbers_with_buy_buttons(update.message, context, available_numbers, "কানাডায় উপলব্ধ")
+        logger.info(f"User {user_id} searching for CA numbers with area code: {area_code_input}")
+        await update.message.reply_text(f"🔎 `{area_code_input}` এরিয়া কোডে নম্বর খোঁজা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...", parse_mode='Markdown')
+        available_numbers = client.available_phone_numbers("CA").local.list(area_code=area_code_input, limit=10)
+        await display_numbers_with_buy_buttons(update.message, context, available_numbers, f"`{area_code_input}` এরিয়া কোডে")
     except Exception as e:
-        logger.error(f"Failed to fetch CA numbers for user {user_id}: {e}")
-        await update.message.reply_text("⚠️ নম্বর আনতে সমস্যা হয়েছে। সম্ভবত আপনার অ্যাকাউন্টে এই অঞ্চলের নম্বর কেনার অনুমতি নেই অথবা অন্য কোনো সমস্যা।")
+        logger.error(f"Failed to fetch numbers for user {user_id} with CA area code {area_code_input}: {e}")
+        await update.message.reply_text("⚠️ নম্বর আনতে সমস্যা হয়েছে। এরিয়া কোডটি সঠিক কিনা দেখুন, আপনার Twilio অ্যাকাউন্টে সমস্যা থাকতে পারে অথবা ইন্টারনেট সংযোগ পরীক্ষা করুন।")
+    return ConversationHandler.END
+
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info(f"User {update.effective_user.id} cancelled a conversation.")
+    await update.message.reply_text('ℹ️ বর্তমান প্রক্রিয়া বাতিল করা হয়েছে।', reply_markup=reply_markup)
+    return ConversationHandler.END
+# --- End Buy Number Conversation ---
 
 async def purchase_number_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -190,27 +211,24 @@ async def purchase_number_callback_handler(update: Update, context: ContextTypes
     await query.answer()  
     user_id = query.from_user.id
     if user_id not in user_sessions:
-        # Don't edit message here as the original list should remain
         await context.bot.send_message(chat_id=user_id, text=f"🔒 অনুগ্রহ করে প্রথমে '{LOGIN_TEXT}' ব্যবহার করে লগইন করুন।")
         return
     if user_sessions[user_id].get('number'):
         current_number = user_sessions[user_id]['number']
-        # Don't edit message here
         await context.bot.send_message(chat_id=user_id, text=f"ℹ️ আপনার ইতিমধ্যেই একটি নম্বর (`{current_number}`) কেনা আছে। নতুন নম্বর কিনতে আগেরটি '{REMOVE_NUMBER_TEXT}' ব্যবহার করে মুছুন।", parse_mode='Markdown')
         return
     try:
         action, number_to_buy = query.data.split('_', 1)
         if action != PURCHASE_CALLBACK_PREFIX.strip('_') or not number_to_buy.startswith('+'):  
             logger.warning(f"Invalid callback data format for purchase: {query.data} for user {user_id}")
-            await context.bot.send_message(chat_id=user_id, text="⚠️ নম্বর কেনার অনুরোধে ত্রুটি হয়েছে।") # Send as new message
+            await context.bot.send_message(chat_id=user_id, text="⚠️ নম্বর কেনার অনুরোধে ত্রুটি হয়েছে।")
             return
     except ValueError: 
         logger.warning(f"Callback data splitting error for purchase: {query.data} for user {user_id}")
-        await context.bot.send_message(chat_id=user_id, text="⚠️ নম্বর কেনার অনুরোধ বুঝতে সমস্যা হয়েছে।") # Send as new message
+        await context.bot.send_message(chat_id=user_id, text="⚠️ নম্বর কেনার অনুরোধ বুঝতে সমস্যা হয়েছে।")
         return
         
     client = user_sessions[user_id]['client']
-    # Send a thinking message before trying to purchase
     processing_msg = await context.bot.send_message(chat_id=user_id, text=f"⏳ `{number_to_buy}` নম্বরটি কেনার চেষ্টা করা হচ্ছে...", parse_mode='Markdown')
     
     try:
@@ -218,12 +236,11 @@ async def purchase_number_callback_handler(update: Update, context: ContextTypes
         incoming_number = client.incoming_phone_numbers.create(phone_number=number_to_buy)
         user_sessions[user_id]['number'] = incoming_number.phone_number
         success_message = f"🛍️ নম্বর `{incoming_number.phone_number}` সফলভাবে কেনা হয়েছে!"
-        try: await processing_msg.delete() # Delete "thinking" message
+        try: await processing_msg.delete() 
         except: pass
-        await context.bot.send_message(chat_id=user_id, text=success_message, parse_mode='Markdown') # Send success as new message
-        # The original list of numbers (query.message) remains untouched
+        await context.bot.send_message(chat_id=user_id, text=success_message, parse_mode='Markdown')
     except Exception as e:
-        try: await processing_msg.delete() # Delete "thinking" message
+        try: await processing_msg.delete()
         except: pass
         logger.error(f"Failed to buy number {number_to_buy} for user {user_id}: {e}")
         error_message = f"❌ এই নম্বরটি (`{number_to_buy}`) কিনতে সমস্যা হয়েছে।"
@@ -233,7 +250,7 @@ async def purchase_number_callback_handler(update: Update, context: ContextTypes
         elif "permission" in str_error or "authorization" in str_error or "not authorized" in str_error: error_message += " আপনার অ্যাকাউন্টে এই নম্বরটি কেনার অনুমতি নেই।"
         elif "balance" in str_error: error_message += " আপনার অ্যাকাউন্টে পর্যাপ্ত ব্যালেন্স নেই।"
         else: error_message += " এটি উপলব্ধ নাও থাকতে পারে অথবা আপনার অ্যাকাউন্টে অন্য কোনো সমস্যা রয়েছে।"
-        await context.bot.send_message(chat_id=user_id, text=error_message, parse_mode='Markdown') # Send error as new message
+        await context.bot.send_message(chat_id=user_id, text=error_message, parse_mode='Markdown')
 
 async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -246,8 +263,17 @@ async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
     client = user_sessions[user_id]['client']
     try:
-        await update.message.reply_text(f"📨 `{active_number}` নম্বরের মেসেজ খোঁজা হচ্ছে...", parse_mode='Markdown')
+        # Clear previous message IDs if any, to avoid deleting wrong messages later
+        user_sessions[user_id]['last_sms_list_msg_id'] = None
+        user_sessions[user_id]['last_direct_remove_button_msg_id'] = None
+
+        thinking_msg = await update.message.reply_text(f"📨 `{active_number}` নম্বরের মেসেজ খোঁজা হচ্ছে...", parse_mode='Markdown')
         messages = client.messages.list(to=active_number, limit=5)  
+        
+        # Delete the "thinking" message
+        try: await thinking_msg.delete()
+        except Exception as e_del_think: logger.info(f"Could not delete thinking message: {e_del_think}")
+
         reply_message_text = ""
         if not messages:
             reply_message_text = "📪 আপনার এই নম্বরে কোনো নতুন মেসেজ পাওয়া যায়নি।"
@@ -264,8 +290,7 @@ async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TY
             reply_message_text = "".join(response_msg_parts)
             sent_sms_msg = await update.message.reply_text(reply_message_text, parse_mode='Markdown')
         
-        # Store message_id and chat_id of the SMS list message for potential deletion
-        if sent_sms_msg:
+        if sent_sms_msg: # Store ID of the message showing SMS list (or "no messages")
             user_sessions[user_id]['last_sms_list_msg_id'] = sent_sms_msg.message_id
             user_sessions[user_id]['last_sms_list_chat_id'] = sent_sms_msg.chat_id
 
@@ -273,10 +298,10 @@ async def show_messages_handler(update: Update, context: ContextTypes.DEFAULT_TY
         button_text_direct_remove = "এই নম্বরটা রিমুভ করুন" 
         keyboard = [[InlineKeyboardButton(button_text_direct_remove, callback_data=DIRECT_REMOVE_AFTER_SHOW_MSG_CALLBACK)]]
         inline_reply_markup = InlineKeyboardMarkup(keyboard)
-        # Send this as a new message, store its ID if we want to delete it too later
         button_msg = await update.message.reply_text("আপনি চাইলে নিচের বাটন ব্যবহার করে এই নম্বরটি সরাসরি রিমুভ করতে পারেন:", reply_markup=inline_reply_markup)
-        user_sessions[user_id]['last_direct_remove_button_msg_id'] = button_msg.message_id
-        user_sessions[user_id]['last_direct_remove_button_chat_id'] = button_msg.chat_id
+        if button_msg: # Store ID of the message containing the button
+            user_sessions[user_id]['last_direct_remove_button_msg_id'] = button_msg.message_id
+            user_sessions[user_id]['last_direct_remove_button_chat_id'] = button_msg.chat_id
 
 
     except Exception as e:
@@ -291,14 +316,18 @@ async def direct_remove_after_show_msg_callback(update: Update, context: Context
     user_id = query.from_user.id
 
     if user_id not in user_sessions or not user_sessions[user_id].get('number'):
-        try: await query.edit_message_text(text="🚫 কোনো সক্রিয় নম্বর নেই অথবা সেশন শেষ হয়ে গেছে। এই অপশনটি আর কাজ করবে না।")
-        except BadRequest: pass 
+        # Edit the button message if possible
+        if query.message:
+            try: await query.edit_message_text(text="🚫 কোনো সক্রিয় নম্বর নেই অথবা সেশন শেষ হয়ে গেছে। এই অপশনটি আর কাজ করবে না।")
+            except BadRequest: await context.bot.send_message(chat_id=user_id, text="🚫 কোনো সক্রিয় নম্বর নেই অথবা সেশন শেষ হয়ে গেছে।")
+        else:
+            await context.bot.send_message(chat_id=user_id, text="🚫 কোনো সক্রিয় নম্বর নেই অথবা সেশন শেষ হয়ে গেছে।")
         return
 
     number_to_remove = user_sessions[user_id]['number']
     client = user_sessions[user_id]['client']
     
-    # IDs of messages to delete
+    # Message IDs to delete
     button_msg_id = user_sessions[user_id].pop('last_direct_remove_button_msg_id', None)
     button_chat_id = user_sessions[user_id].pop('last_direct_remove_button_chat_id', None)
     sms_list_msg_id = user_sessions[user_id].pop('last_sms_list_msg_id', None)
@@ -306,15 +335,19 @@ async def direct_remove_after_show_msg_callback(update: Update, context: Context
 
     try:
         logger.info(f"User {user_id} initiated direct removal for number: {number_to_remove} from show_messages context.")
-        # Don't edit, delete button message and then sms list message
+        
+        # Attempt to delete the button message first (as it's query.message)
+        if query.message: # If the button message still exists
+            try:
+                await query.message.delete() 
+            except Exception as e_del_btn: 
+                logger.warning(f"Could not delete button message {query.message.message_id}: {e_del_btn}")
         
         incoming_phone_numbers = client.incoming_phone_numbers.list(phone_number=number_to_remove, limit=1)
         if not incoming_phone_numbers:
-            # Delete the button message first
-            if button_msg_id and button_chat_id:
-                try: await context.bot.delete_message(chat_id=button_chat_id, message_id=button_msg_id)
-                except Exception as e_del_btn: logger.warning(f"Could not delete button message {button_msg_id}: {e_del_btn}")
-            
+            if sms_list_msg_id and sms_list_chat_id: # Try deleting SMS list if removal "fails" due to number not found
+                try: await context.bot.delete_message(chat_id=sms_list_chat_id, message_id=sms_list_msg_id)
+                except Exception as e_del_sms: logger.warning(f"Could not delete original SMS list message {sms_list_msg_id} (number not found case): {e_del_sms}")
             await context.bot.send_message(chat_id=user_id, text=f"❓ নম্বর `{number_to_remove}` আপনার অ্যাকাউন্টে পাওয়া যায়নি বা আগেই রিমুভ করা হয়েছে।", parse_mode='Markdown')
             user_sessions[user_id]['number'] = None 
             return
@@ -323,27 +356,17 @@ async def direct_remove_after_show_msg_callback(update: Update, context: Context
         client.incoming_phone_numbers(number_sid_to_delete).delete()
         user_sessions[user_id]['number'] = None
 
-        # Delete button message
-        if button_msg_id and button_chat_id:
-            try: await context.bot.delete_message(chat_id=button_chat_id, message_id=button_msg_id)
-            except Exception as e_del_btn: logger.warning(f"Could not delete button message {button_msg_id}: {e_del_btn}")
-        
-        # Delete SMS list message
+        # Delete SMS list message if successfully removed number
         if sms_list_msg_id and sms_list_chat_id:
             try: await context.bot.delete_message(chat_id=sms_list_chat_id, message_id=sms_list_msg_id)
             except Exception as e_del_sms: logger.warning(f"Could not delete original SMS list message {sms_list_msg_id}: {e_del_sms}")
         
-        await context.bot.send_message(chat_id=user_id, text=f"🗑️ নম্বর `{number_to_remove}` সফলভাবে রিমুভ করা হয়েছে এবং মেসেজ তালিকা/অপশন মুছে ফেলা হয়েছে।", parse_mode='Markdown')
+        await context.bot.send_message(chat_id=user_id, text=f"🗑️ নম্বর `{number_to_remove}` সফলভাবে রিমুভ করা হয়েছে এবং সম্পর্কিত বার্তা মুছে ফেলা হয়েছে।", parse_mode='Markdown')
         
     except Exception as e:
         logger.error(f"Failed to directly remove number {number_to_remove} for user {user_id}: {e}")
-        # If an error occurs during removal, edit the button message to show error
-        if button_msg_id and button_chat_id: # Check if we still have button message context
-             try:
-                await context.bot.edit_message_text(chat_id=button_chat_id, message_id=button_msg_id, text=f"⚠️ নম্বর `{number_to_remove}` রিমুভ করতে সমস্যা হয়েছে।", parse_mode='Markdown', reply_markup=None)
-             except Exception as e_edit:
-                logger.error(f"Failed to edit button message on error: {e_edit}")
-                await context.bot.send_message(chat_id=user_id, text=f"⚠️ নম্বর `{number_to_remove}` রিমুভ করতে সমস্যা হয়েছে।")
+        # If an error occurs during removal, send a new message as the button message might be gone
+        await context.bot.send_message(chat_id=user_id, text=f"⚠️ নম্বর `{number_to_remove}` রিমুভ করতে সমস্যা হয়েছে।")
 
 
 async def remove_number_handler(update: Update, context: ContextTypes.DEFAULT_TYPE): 
@@ -422,11 +445,6 @@ async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error sending support message to user {user.id}: {e}")
 
-async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: 
-    logger.info(f"User {update.effective_user.id} cancelled a conversation using /cancel.")
-    await update.message.reply_text('ℹ️ বর্তমান প্রক্রিয়া বাতিল করা হয়েছে।', reply_markup=reply_markup)
-    return ConversationHandler.END
-
 if __name__ == '__main__':
     TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     if TOKEN is None:
@@ -442,16 +460,23 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel_conversation)] 
     )
     
-    # The 'Buy Number' (BUY_TEXT) button now directly calls buy_number_direct_ca_handler
-    # No conversation handler for it unless we re-introduce area code specific buying separately.
+    # ConversationHandler for "Buy Number" (asks for CA area code) is now correctly tied to BUY_TEXT
+    buy_number_conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex(f'^{BUY_TEXT}$'), ask_for_ca_area_code)],
+        states={
+            AWAITING_CA_AREA_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, list_numbers_by_ca_area_code)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel_conversation)] 
+    )
 
     app.add_handler(login_conv_handler)
+    app.add_handler(buy_number_conv_handler) # Handles BUY_TEXT
     
     app.add_handler(MessageHandler(filters.Regex(f'^{START_COMMAND_TEXT}$'), start))
-    app.add_handler(CommandHandler("start", start)) 
+    app.add_handler(CommandHandler("start", start)) # Keep this for direct /start command
 
     app.add_handler(MessageHandler(filters.Regex(f'^{LOGOUT_TEXT}$'), logout_handler))
-    app.add_handler(MessageHandler(filters.Regex(f'^{BUY_TEXT}$'), buy_number_direct_ca_handler)) 
+    # The direct handler for BUY_TEXT is now removed, buy_number_conv_handler takes precedence.
     app.add_handler(MessageHandler(filters.Regex(f'^{REMOVE_NUMBER_TEXT}$'), remove_number_handler))
     app.add_handler(MessageHandler(filters.Regex(f'^{SHOW_MESSAGES_TEXT}$'), show_messages_handler)) 
     app.add_handler(MessageHandler(filters.Regex(f'^{SUPPORT_TEXT}$'), support_handler))
