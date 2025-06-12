@@ -17,9 +17,9 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # --- ফোর্স সাবস্ক্রাইব ফিচার এর জন্য কনস্ট্যান্ট ---
-# আপনার দেওয়া তথ্য অনুযায়ী চ্যানেল আইডি ও লিংক এখানে বসানো হয়েছে।
+# আপনার দেওয়া তথ্য অনুযায়ী চ্যানেল আইডি ও নতুন লিংক এখানে বসানো হয়েছে।
 FORCE_SUB_CHANNEL_ID = -1002085020447
-FORCE_SUB_CHANNEL_LINK = "https://t.me/+7BaDKDxZc1FjNTll"
+FORCE_SUB_CHANNEL_LINK = "https://t.me/+-HQpmwwkFaRhNmI1" # আপনার নতুন চ্যানেল লিংক
 
 
 # --- Globals & Persistence ---
@@ -110,7 +110,7 @@ async def display_numbers_with_buy_buttons(message_object, context: ContextTypes
     inline_reply_markup = InlineKeyboardMarkup(keyboard_buttons)
     await message_object.reply_text(full_message_text, reply_markup=inline_reply_markup, parse_mode='Markdown')
 
-# --- পরিবর্তিত: ফোর্স সাবস্ক্রাইব চেকের জন্য ডেкоರೇটর ---
+# --- ফোর্স সাবস্ক্রাইব চেকের জন্য ডেкоರೇটর ---
 def force_subscribe_check(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
@@ -150,23 +150,20 @@ def force_subscribe_check(func):
 
     return wrapper
 
-# ... (বাকি সব কোড অপরিবর্তিত থাকবে)
 # States for ConversationHandlers, Menu Texts, Callback Data, etc.
-
-# --- States, Menus, Callbacks (অপরিবর্তিত) ---
 AWAITING_CREDENTIALS, AWAITING_CA_AREA_CODE = 0, 1
 START_COMMAND_TEXT, LOGIN_TEXT, BUY_TEXT, SHOW_MESSAGES_TEXT, REMOVE_NUMBER_TEXT, LOGOUT_TEXT, SUPPORT_TEXT = '🏠 /start', '🔑 Login', '🛒 Buy Number', '✉️ Show Messages', '🗑️ Remove Number', '↪️ Logout', '💬 Support'
 PURCHASE_CALLBACK_PREFIX, CONFIRM_REMOVE_YES_CALLBACK, CONFIRM_REMOVE_NO_CALLBACK, DIRECT_REMOVE_AFTER_SHOW_MSG_CALLBACK = 'purchase_', 'confirm_remove_yes', 'confirm_remove_no', 'direct_remove_this_number'
 menu_keyboard = [[START_COMMAND_TEXT, LOGIN_TEXT], [BUY_TEXT, SHOW_MESSAGES_TEXT], [REMOVE_NUMBER_TEXT, LOGOUT_TEXT], [SUPPORT_TEXT]]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
-# --- Flask App (অপরিবর্তিত) ---
+# Flask App
 flask_app = Flask(__name__)
 @flask_app.route('/')
 def keep_alive_route(): return 'Bot is alive!'
 def run_flask(): flask_app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
-# --- Helper function to release number (অপরিবর্তিত) ---
+# Helper function to release number
 async def _release_twilio_number(user_id: int, client: Client, number_to_release: str) -> tuple[bool, str]:
     try:
         incoming_phone_numbers = client.incoming_phone_numbers.list(phone_number=number_to_release, limit=1)
@@ -181,7 +178,7 @@ async def _release_twilio_number(user_id: int, client: Client, number_to_release
         logger.error(f"Failed during release: {e}")
         return False, f"⚠️ নম্বর `{number_to_release}` রিমুভ করতে সমস্যা হয়েছে।"
 
-# --- Telegram Bot Handlers (ডেкоರೇটর সহ) ---
+# --- Telegram Bot Handlers (with decorator) ---
 @force_subscribe_check
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"👋 স্বাগতম! মেনু থেকে একটি অপশন বেছে নিন।", reply_markup=reply_markup)
@@ -367,7 +364,6 @@ async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(f"💬 অ্যাডমিনের সাথে যোগাযোগ", url=f"https://t.me/MrGhosh75")]]
     await update.message.reply_text("সাপোর্টের জন্য, অ্যাডমিনের সাথে যোগাযোগ করুন:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-
 # --- Main block to run the bot ---
 if __name__ == '__main__':
     TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -398,6 +394,7 @@ if __name__ == '__main__':
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_general_text))
 
+    # Run Flask in a separate thread
     threading.Thread(target=run_flask, daemon=True).start()
 
     logger.info("🤖 Bot is starting...")
